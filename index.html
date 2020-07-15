@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://unpkg.com/d3-simple-slider"></script>
+    <style type="text/css">
+        body {
+            font-family: sans-serif;
+            color: #333;
+            padding: 50px;
+        }
+        #vote-picker, #matrix {
+            padding-left: 20px;
+            display: block;
+            float: left;
+            width: auto;
+        }
+        #container, #legend {
+            display: inline-block;
+        }
+
+        tr {
+            position:relative;
+        }
+    </style>
+</head>
+<body>
+<h1>Vote Selection</h1>
+<p id="winner"></p>
+<div id="vote-picker"></div>
+</div>
+<div id="matrix">
+    <div id="container">lalala</div>
+    <div id="legend"></div>
+    <div id="summary-stats"></div>
+</div>
+<script src="matrix.js"></script>
+<!-- Thanks to Arpit Narechania for confusion matrix code: https://bl.ocks.org/arpitnarechania/dbf03d8ef7fffa446379d59db6354bac-->
+<!-- Thanks to John Walley for Slider code: https://bl.ocks.org/johnwalley/e1d256b81e51da68f7feb632a53c3518 -->
+<script>
+
+    function titleCase(string) {
+        let sentence = string.toLowerCase().split(" ")
+        for (let i = 0; i < sentence.length; i++) {
+            sentence[i] = sentence[i][0].toUpperCase() + sentence[i].slice(1);
+        }
+        return sentence;
+    }
+
+    function formatNumber(n){
+        if (n==1){
+            return '1st'
+        }
+        else if (n == 2){
+            return '2nd'
+        }
+        else if (n==3){
+            return '3rd'
+        }
+        else return (n.toString() + 'th')
+    }
+
+    let candidates = ['A','B','C','D']
+    let optionCount = candidates.length
+    let colors = new Array(optionCount)
+    let choiceColormap = d3.scaleLinear()
+        .domain([0,optionCount])
+        .range([0, 360])
+    let voteMatrix = []
+
+    for (let i in candidates) {
+        voteMatrix[i] = new Array(optionCount).fill(0)
+        voteMatrix[i][i] = 100
+        colors[i] = (`hsl(${choiceColormap(i)}, 70%, 60%)`)
+    }
+
+    for (let rank in voteMatrix) {
+        setRank(rank)
+    }
+
+    function setRank(rank){
+        d3.select(`#rank-${rank}`).html('')
+        d3.select('div#vote-picker')
+            .append('div')
+            .attr('class',`rank rank-${rank}`)
+            .append('h2').html(`${formatNumber(parseInt(rank)+1)} Choice`)
+        d3.select(`div.rank-${rank}`).append('table').attr('class',`rank-${rank}`)
+        candidates.forEach((candidate) => setSlider(rank, candidate))
+    }
+
+    function setSlider(rank, candidate){
+        //console.log(`Setting slider for candidate ${candidate} for choice ${rank}`)
+        let i = candidates.indexOf(candidate)
+        //console.log(`Index of candidate ${candidate} is ${i}`)
+        let slider = d3
+            .sliderBottom()
+            .min(0)
+            .max(100)
+            .step(1)
+            .width(200)
+            .default(voteMatrix[rank][i])
+            .displayValue(false)
+            .fill(colors[i])
+            .on('onchange', num => {
+                voteMatrix[rank][i] = num;
+                console.log(`Changed ${rank} choice vote for candidate ${candidate} to ${num}`)
+                adjustOthers(candidate,rank)
+                setMatrix()
+            });
+        d3.select(`table.rank-${rank}`).select(`.${candidate}`).remove()
+        let row = d3.select(`table.rank-${rank}`).append('tr').attr('class',candidate)
+        row.append('td').style('vertical-align','middle').html(`${candidate}`)
+        row.append('td').append('svg')
+            .attr('width', 300)
+            .attr('height', 50)
+            .attr('class',candidate)
+            .append('g')
+            .attr('transform', 'translate(30,30)')
+            .attr('class','slider')
+            .attr('padding','20px')
+            .attr('class',candidate)
+            .call(slider);
+    }
+
+    function getCandidateVotes(i){
+        let candidateVotes = []
+        for (let rank in voteMatrix) {
+            candidateVotes.push(voteMatrix[rank][i])
+        }
+        return candidateVotes
+    }
+
+    function sumCandidate(i){
+        return d3.sum(getCandidateVotes(i))
+    }
+
+    function adjustOthers(candidate,rank){
+        let voteCount = d3.sum(voteMatrix[rank])
+        let thisCandidate = candidates.indexOf(candidate)
+        let candidateVotes = getCandidateVotes(thisCandidate)
+        let candidateSum = sumCandidate(thisCandidate)
+        let otherCandidates = [...candidates].filter(c => c !== candidate)
+        let otherCount = otherCandidates.length
+        console.log(`There are ${otherCount} other candidates: ${otherCandidates}`)
+        let otherCandidateOne = candidates.indexOf(otherCandidates[0])
+        //console.log(`Other candidate #1: ${otherCandidateOne}`)
+        let otherCandidateTwo = candidates.indexOf(otherCandidates[1])
+        //console.log(`Other candidate #2: ${otherCandidateTwo}`)
+
+        if (voteCount !== 100 ){
+            let excess = 100 - voteCount
+            console.log(`More than 100 votes total! There are ${excess} excess votes`)
+            otherCandidates.forEach(candidate => {
+                let canIndex = candidates.indexOf(candidate)
+                voteMatrix[rank][canIndex] = voteMatrix[rank][canIndex] + Math.round(excess/otherCount)
+            })
+            console.log(`Adjusted votes by ${Math.round(excess/otherCount)} for Candidates ${otherCandidates}`)
+        }
+
+        function getSecondPlace(){
+            let highestVote = d3.max(voteMatrix[rank])
+            console.log(`Highest vote: ${highestVote}, for Candidate ${candidates[voteMatrix[rank].indexOf(highestVote)]}`)
+            let secondHighest = d3.max([...voteMatrix[rank]].filter(n => n!=highestVote))
+            console.log(`Second highest vote: ${secondHighest}, for Candidate ${candidates[voteMatrix[rank].indexOf(secondHighest)]}`)
+            return parseInt(voteMatrix[rank].indexOf(secondHighest))
+        }
+
+        function getSecondRank(i){
+            let candidateVotes = getCandidateVotes(i)
+            let highestRankCount = d3.max(candidateVotes)
+            let secondHighestCount = d3.max([...candidateVotes].filter(n => n!=highestRankCount))
+            return parseInt(candidateVotes.indexOf(secondHighestCount))
+        }
+
+        function redistributeNegatives(){
+
+            let secondPlace = getSecondPlace()
+            // Remove any negatives the rows (ranks) of the matrix
+            voteMatrix[rank].forEach((n,i) => {
+                if(n<0){
+                    let diff = 0 - n
+                    console.log(`Negative ${diff} votes for ${candidates[i]}`)
+                    voteMatrix[rank][secondPlace] = voteMatrix[rank][secondPlace] - diff
+                    console.log(`Removed ${diff} votes from ${candidates[secondPlace]}`)
+                    voteMatrix[rank][i] = 0
+                    console.log(`Set votes for ${candidates[secondPlace]} to 0`)
+
+                }
+            })
+
+            let secondRank = getSecondRank(thisCandidate)
+            // Remove any negatives from the column of the matrix for this candidate
+            for (let rankIndex in voteMatrix){
+                let n = voteMatrix[rankIndex][thisCandidate]
+                if (n<0) {
+                    let diff = 0 - n
+                    console.log(`Negative ${diff} votes for ${candidates[thisCandidate]} for rank ${rankIndex + 1}`)
+                    voteMatrix[secondRank][thisCandidate] = voteMatrix[secondRank][thisCandidate] - diff
+                    console.log(`Removed ${diff} votes from ${candidates[thisCandidate]} for rank ${rankIndex + 1}`)
+                    voteMatrix[rankIndex][thisCandidate] = 0
+                    console.log(`Set rank ${rankIndex + 1} votes for ${candidates[thisCandidate]} to 0`)
+                }
+            }
+        }
+
+        function balanceCounts(){
+
+            // Balance counts for the rows (ranks) of the matrix
+            function balanceRanks(){
+                let subTotal = d3.sum(voteMatrix[rank])
+                //console.log(`Subtotal of ${voteMatrix[rank]} is ${subTotal}`)
+                let diff = Math.abs(100-subTotal)
+                if (diff>0){
+                    console.log(`Subtotal is ${subTotal}`)
+                    let secondPlace = getSecondPlace()
+                    voteMatrix[rank][secondPlace] = voteMatrix[rank][secondPlace] + (100-subTotal)
+                }
+            }
+
+            // Balance counts for the column of the matrix for this candidate
+            function balanceCandidate(i){
+                let diff = Math.abs(100-candidateSum)
+                if (diff>0){
+                    console.log(`Total votes for ${candidates[thisCandidate]} are ${candidateSum}, a difference of ${diff} from 100`)
+                    let secondRank = getSecondRank(i)
+                    voteMatrix[secondRank][i] = voteMatrix[secondRank][i] + (100-candidateSum)
+                }
+            }
+
+            if(d3.sum(voteMatrix[rank]) !== 100) { balanceRanks() }
+            if(candidateSum != 100){ balanceCandidate(thisCandidate) }
+
+        }
+
+        redistributeNegatives()
+        balanceCounts()
+        let needsAdjusting = makeAdjustments()
+        function makeAdjustments() {
+            let isBalanced = false
+            if ((d3.sum(voteMatrix[rank]) !== 100) || candidateSum !== 100) {
+                isBalanced = false
+                balanceCounts()
+            }
+            else {
+                isBalanced = true
+            }
+            let nonNegative = false
+            voteMatrix[rank].forEach((n) => {
+                if(n<0){
+                    nonNegative=false
+                    redistributeNegatives()
+                }
+                else {
+                    nonNegative = true
+                }
+            })
+            getCandidateVotes(thisCandidate).forEach(n => {
+                if (n<0){
+                    nonNegative=false
+                    redistributeNegatives()
+                }
+                else {
+                    nonNegative = true
+                }
+            })
+            if (isBalanced && nonNegative){
+                return false
+            }
+        }
+        while (needsAdjusting){ makeAdjustments()}
+        candidates.forEach((candidate) => {
+            for (let rankIndex in voteMatrix) {
+                setSlider(rankIndex, candidate)
+            }
+        })
+    }
+
+    function computeSums(){
+        let summary = []
+        function sumRanks(rank){
+            let thisRow = {'Rank':rank}
+            for (let i in candidates){
+                thisRow[`${candidates[i]}`] = voteMatrix[rank][i]
+            }
+            thisRow['Total'] = d3.sum(voteMatrix[rank])
+            summary.push(thisRow)
+        }
+        function sumCandidates(){
+            let thisRow = {'Rank': 'Total'}
+            for (let i in candidates) {
+                thisRow[`${candidates[i]}`] = sumCandidate(i)
+            }
+            thisRow['Total'] = ''
+            summary.push(thisRow)
+        }
+        for (let rank in voteMatrix) { sumRanks(rank) }
+        sumCandidates()
+        return summary
+    }
+
+    function setMatrix(){
+
+        let computedData = computeSums()
+
+        let labels = candidates;
+        Matrix({
+            data      : voteMatrix,
+            labels    : [candidates,new Array(optionCount)],
+            start_color : 'white',
+            end_color : 'navy'
+        });
+
+        // rendering the table
+        let tableHeaders = ["Rank"]
+        candidates.forEach(candidate => tableHeaders.push(candidate))
+        tableHeaders.push("Total")
+        let table = tabulate(computedData, tableHeaders)
+    }
+
+    setMatrix()
+</script>
+</body>
+</html>
